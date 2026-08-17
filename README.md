@@ -1,0 +1,2 @@
+# Benbenyu_finance
+Benbenyu_finance笨笨鱼财务系统是一个全栈代码网页系统，用于管理个人及单位的财务流水往来。
