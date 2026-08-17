@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - 笨笨鱼财务系统</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+  <div id="app" class="login-page">
+    <div class="login-card">
+      <div class="login-logo">
+        <h1>🐟 笨笨鱼财务系统</h1>
+        <p>个人与单位财务管理平台</p>
+      </div>
+
+      <div v-if="error" class="alert alert-error">{{ error }}</div>
+
+      <!-- 身份选择 -->
+      <div class="form-group">
+        <label>选择登录身份</label>
+        <div class="role-selector">
+          <div
+            class="role-btn"
+            :class="{ active: role === 'personal' }"
+            @click="role = 'personal'"
+          >
+            <span class="icon">👤</span>
+            个人用户
+          </div>
+          <div
+            class="role-btn"
+            :class="{ active: role === 'organization' }"
+            @click="role = 'organization'"
+          >
+            <span class="icon">🏛️</span>
+            单位用户
+          </div>
+        </div>
+      </div>
+
+      <!-- 登录表单 -->
+      <div class="form-group">
+        <label>用户名</label>
+        <input
+          v-model="username"
+          class="form-control"
+          placeholder="请输入用户名"
+          @keyup.enter="handleLogin"
+        >
+      </div>
+
+      <div class="form-group">
+        <label>密码</label>
+        <input
+          v-model="password"
+          type="password"
+          class="form-control"
+          placeholder="请输入密码"
+          @keyup.enter="handleLogin"
+        >
+      </div>
+
+      <button
+        class="btn btn-primary btn-block"
+        :disabled="loading"
+        @click="handleLogin"
+      >
+        {{ loading ? '登录中...' : '登 录' }}
+      </button>
+
+      <p style="text-align:center; margin-top:16px; font-size:13px; color:#94a3b8;">
+        演示账号：personal / org &nbsp; 密码：123456
+      </p>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          username: '',
+          password: '',
+          role: 'personal',
+          loading: false,
+          error: '',
+        };
+      },
+      mounted() {
+        // 已登录则自动跳转
+        const token = getToken();
+        const role = localStorage.getItem('role');
+        if (token && role) {
+          window.location.href = role === 'organization' ? 'org.html' : 'personal.html';
+        }
+      },
+      methods: {
+        async handleLogin() {
+          this.error = '';
+          if (!this.username || !this.password) {
+            this.error = '请输入用户名和密码';
+            return;
+          }
+
+          this.loading = true;
+          try {
+            const data = await api.login(this.username, this.password, this.role);
+            saveAuth(data);
+            window.location.href = this.role === 'organization' ? 'org.html' : 'personal.html';
+          } catch (e) {
+            this.error = e.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+      },
+    }).mount('#app');
+  </script>
+</body>
+</html>

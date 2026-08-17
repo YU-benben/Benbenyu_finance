@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>单位财政 - 笨笨鱼财务系统</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航 -->
+    <header class="app-header">
+      <div class="brand">🐟 笨笨鱼财务系统 · 单位财政管理</div>
+      <div class="user-info">
+        <span>{{ orgName }} · {{ displayName }}</span>
+        <button class="btn btn-outline btn-sm" @click="logout">退出登录</button>
+      </div>
+    </header>
+
+    <div class="app-container">
+      <!-- 统计卡片 -->
+      <div class="stats-grid">
+        <div class="stat-card income">
+          <div class="label">总收入</div>
+          <div class="value">¥ {{ formatMoney(stats.total_income) }}</div>
+        </div>
+        <div class="stat-card expense">
+          <div class="label">总支出</div>
+          <div class="value">¥ {{ formatMoney(stats.total_expense) }}</div>
+        </div>
+        <div class="stat-card balance">
+          <div class="label">结余</div>
+          <div class="value">¥ {{ formatMoney(stats.balance) }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">业务笔数</div>
+          <div class="value">{{ stats.record_count }}</div>
+        </div>
+      </div>
+
+      <!-- 业务记录 -->
+      <div class="panel">
+        <div class="panel-header">
+          <h2>财政业务记录</h2>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-outline btn-sm" @click="exportExcel">📥 导出Excel</button>
+            <button class="btn btn-primary btn-sm" @click="openForm()">+ 新增业务</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="filter-bar">
+            <div class="form-group">
+              <label>开始日期</label>
+              <input type="date" v-model="filters.start_date" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>结束日期</label>
+              <input type="date" v-model="filters.end_date" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>类型</label>
+              <select v-model="filters.record_type" class="form-control">
+                <option value="">全部</option>
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>部门</label>
+              <input v-model="filters.department" class="form-control" placeholder="部门名称">
+            </div>
+            <button class="btn btn-primary btn-sm" @click="loadData">查询</button>
+            <button class="btn btn-outline btn-sm" @click="resetFilters">重置</button>
+          </div>
+
+          <div v-if="loading" class="loading">加载中...</div>
+          <div v-else-if="records.length === 0" class="empty-state">暂无业务记录</div>
+          <table v-else class="data-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>类型</th>
+                <th>凭证号</th>
+                <th>部门</th>
+                <th>项目</th>
+                <th>资金来源</th>
+                <th>金额</th>
+                <th>经办人</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in records" :key="r.id">
+                <td>{{ r.record_date }}</td>
+                <td>
+                  <span :class="['tag', r.record_type === 'income' ? 'tag-income' : 'tag-expense']">
+                    {{ r.record_type === 'income' ? '收入' : '支出' }}
+                  </span>
+                </td>
+                <td>{{ r.voucher_no || '-' }}</td>
+                <td>{{ r.department || '-' }}</td>
+                <td>{{ r.project_name || '-' }}</td>
+                <td>{{ r.fund_source || '-' }}</td>
+                <td :style="{ color: r.record_type === 'income' ? '#16a34a' : '#dc2626', fontWeight: 600 }">
+                  {{ r.record_type === 'income' ? '+' : '-' }}¥{{ formatMoney(r.amount) }}
+                </td>
+                <td>{{ r.handler || '-' }}</td>
+                <td class="table-actions">
+                  <button class="btn btn-outline btn-sm" @click="openForm(r)">编辑</button>
+                  <button class="btn btn-danger btn-sm" @click="deleteRecord(r.id)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 部门统计 -->
+      <div class="panel" v-if="stats.department_summary && stats.department_summary.length">
+        <div class="panel-header"><h2>部门统计</h2></div>
+        <div class="panel-body">
+          <table class="data-table">
+            <thead>
+              <tr><th>部门</th><th>收入</th><th>支出</th><th>笔数</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(d, i) in stats.department_summary" :key="i">
+                <td>{{ d.department }}</td>
+                <td style="color:#16a34a">¥{{ formatMoney(d.income) }}</td>
+                <td style="color:#dc2626">¥{{ formatMoney(d.expense) }}</td>
+                <td>{{ d.count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 资金来源统计 -->
+      <div class="panel" v-if="stats.fund_source_summary && stats.fund_source_summary.length">
+        <div class="panel-header"><h2>资金来源统计</h2></div>
+        <div class="panel-body">
+          <table class="data-table">
+            <thead>
+              <tr><th>资金来源</th><th>合计金额</th><th>笔数</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(f, i) in stats.fund_source_summary" :key="i">
+                <td>{{ f.fund_source }}</td>
+                <td>¥{{ formatMoney(f.total) }}</td>
+                <td>{{ f.count }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新增/编辑模态框 -->
+    <div v-if="showForm" class="modal-overlay" @click.self="showForm = false">
+      <div class="modal" style="width:680px;">
+        <div class="modal-header">
+          <h3>{{ editingId ? '编辑业务' : '新增财政业务' }}</h3>
+          <button class="modal-close" @click="showForm = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="formError" class="alert alert-error">{{ formError }}</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>业务日期 *</label>
+              <input type="date" v-model="form.record_date" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>类型 *</label>
+              <select v-model="form.record_type" class="form-control">
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>凭证号</label>
+              <input v-model="form.voucher_no" class="form-control" placeholder="如 PZ20260101001">
+            </div>
+            <div class="form-group">
+              <label>预算科目编码</label>
+              <input v-model="form.budget_code" class="form-control" placeholder="如 30201">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>所属部门</label>
+              <input v-model="form.department" class="form-control" placeholder="如 财政所">
+            </div>
+            <div class="form-group">
+              <label>项目名称</label>
+              <input v-model="form.project_name" class="form-control">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>资金来源</label>
+              <select v-model="form.fund_source" class="form-control">
+                <option value="">请选择</option>
+                <option>一般公共预算</option>
+                <option>政府性基金</option>
+                <option>专项资金</option>
+                <option>其他资金</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>金额 *</label>
+              <input type="number" v-model="form.amount" class="form-control" step="0.01" min="0">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>经济分类</label>
+              <input v-model="form.economic_classification" class="form-control" placeholder="如 商品和服务支出">
+            </div>
+            <div class="form-group">
+              <label>功能分类</label>
+              <input v-model="form.functional_classification" class="form-control" placeholder="如 医疗卫生">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>收款方/付款方</label>
+              <input v-model="form.payee_payer" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>经办人</label>
+              <input v-model="form.handler" class="form-control">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>审批人</label>
+              <input v-model="form.approver" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>摘要说明</label>
+              <input v-model="form.description" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" @click="showForm = false">取消</button>
+          <button class="btn btn-primary" @click="saveForm">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/api.js"></script>
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          displayName: localStorage.getItem('display_name') || '',
+          orgName: localStorage.getItem('org_name') || '',
+          records: [],
+          stats: {
+            total_income: 0, total_expense: 0, balance: 0, record_count: 0,
+            department_summary: [], fund_source_summary: [],
+          },
+          filters: { start_date: '', end_date: '', record_type: '', department: '' },
+          loading: false,
+          showForm: false,
+          editingId: null,
+          formError: '',
+          form: {
+            record_date: todayStr(),
+            record_type: 'expense',
+            voucher_no: '',
+            budget_code: '',
+            department: '',
+            project_name: '',
+            fund_source: '',
+            economic_classification: '',
+            functional_classification: '',
+            amount: '',
+            payee_payer: '',
+            handler: '',
+            approver: '',
+            description: '',
+          },
+        };
+      },
+      mounted() {
+        if (!requireAuth('organization')) return;
+        this.loadData();
+      },
+      methods: {
+        formatMoney,
+        getEmptyForm() {
+          return {
+            record_date: todayStr(),
+            record_type: 'expense',
+            voucher_no: '',
+            budget_code: '',
+            department: '',
+            project_name: '',
+            fund_source: '',
+            economic_classification: '',
+            functional_classification: '',
+            amount: '',
+            payee_payer: '',
+            handler: '',
+            approver: '',
+            description: '',
+          };
+        },
+        async loadData() {
+          this.loading = true;
+          try {
+            const params = {};
+            if (this.filters.start_date) params.start_date = this.filters.start_date;
+            if (this.filters.end_date) params.end_date = this.filters.end_date;
+            if (this.filters.record_type) params.record_type = this.filters.record_type;
+            if (this.filters.department) params.department = this.filters.department;
+
+            const [records, stats] = await Promise.all([
+              api.getOrgRecords(params),
+              api.getOrgStatistics(params),
+            ]);
+            this.records = records;
+            this.stats = stats;
+          } catch (e) {
+            alert(e.message);
+          } finally {
+            this.loading = false;
+          }
+        },
+        resetFilters() {
+          this.filters = { start_date: '', end_date: '', record_type: '', department: '' };
+          this.loadData();
+        },
+        openForm(record) {
+          this.formError = '';
+          if (record) {
+            this.editingId = record.id;
+            this.form = {
+              record_date: record.record_date,
+              record_type: record.record_type,
+              voucher_no: record.voucher_no || '',
+              budget_code: record.budget_code || '',
+              department: record.department || '',
+              project_name: record.project_name || '',
+              fund_source: record.fund_source || '',
+              economic_classification: record.economic_classification || '',
+              functional_classification: record.functional_classification || '',
+              amount: record.amount,
+              payee_payer: record.payee_payer || '',
+              handler: record.handler || '',
+              approver: record.approver || '',
+              description: record.description || '',
+            };
+          } else {
+            this.editingId = null;
+            this.form = this.getEmptyForm();
+          }
+          this.showForm = true;
+        },
+        async saveForm() {
+          this.formError = '';
+          if (!this.form.record_date || !this.form.amount) {
+            this.formError = '请填写必填项（日期、金额）';
+            return;
+          }
+          try {
+            const payload = { ...this.form, amount: parseFloat(this.form.amount) };
+            if (this.editingId) {
+              await api.updateOrgRecord(this.editingId, payload);
+            } else {
+              await api.createOrgRecord(payload);
+            }
+            this.showForm = false;
+            this.loadData();
+          } catch (e) {
+            this.formError = e.message;
+          }
+        },
+        async deleteRecord(id) {
+          if (!confirm('确定删除此业务记录？')) return;
+          try {
+            await api.deleteOrgRecord(id);
+            this.loadData();
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+        async exportExcel() {
+          try {
+            const params = {};
+            if (this.filters.start_date) params.start_date = this.filters.start_date;
+            if (this.filters.end_date) params.end_date = this.filters.end_date;
+            const blob = await api.exportOrg(params);
+            downloadBlob(blob, '单位财政账本.xlsx');
+          } catch (e) {
+            alert(e.message);
+          }
+        },
+        logout() {
+          clearAuth();
+          window.location.href = 'index.html';
+        },
+      },
+    }).mount('#app');
+  </script>
+</body>
+</html>
